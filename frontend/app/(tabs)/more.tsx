@@ -11,6 +11,8 @@ export default function MoreScreen() {
   const router = useRouter();
 
   const menuItems = [
+    { icon: 'star', label: 'Premium', desc: 'Upgrade for analytics, exports & more', route: '/premium', color: '#FFD700' },
+    { icon: 'analytics', label: 'Analytics', desc: 'Charts, trends & insights (Premium)', route: '/analytics', color: '#6B8E23' },
     { icon: 'home', label: 'Assets Registry', desc: 'Wagons, horses, buildings & more', route: '/assets-list', color: '#8B7355' },
     { icon: 'checkbox', label: 'Task Board', desc: 'Duties, assignments & chores', route: '/tasks', color: COLORS.secondary },
     { icon: 'document-text', label: 'Audit Log', desc: 'Full history of every change', route: '/audit', color: COLORS.primary },

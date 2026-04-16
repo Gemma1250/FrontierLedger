@@ -14,6 +14,8 @@ export default function RootLayout() {
         <Stack.Screen name="tasks" />
         <Stack.Screen name="audit" />
         <Stack.Screen name="roles" />
+        <Stack.Screen name="premium" />
+        <Stack.Screen name="analytics" />
       </Stack>
     </AuthProvider>
   );

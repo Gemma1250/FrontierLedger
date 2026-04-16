@@ -1,19 +1,22 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Query, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import RedirectResponse
+from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 import httpx
 from urllib.parse import urlencode
+import csv
+import io
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -33,6 +36,13 @@ DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN', '')
 DISCORD_GUILD_ID = os.environ.get('DISCORD_GUILD_ID', '')
 DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', '')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
+
+# Stripe Config
+STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '')
+PREMIUM_PRICE = 5.00
+PREMIUM_DAYS = 30
+FREE_ORG_LIMIT = 2
+PREMIUM_ORG_LIMIT = 20
 
 app = FastAPI(title="Frontier Ledger API")
 api_router = APIRouter(prefix="/api")
@@ -375,6 +385,13 @@ async def update_discord_settings(org_id: str, data: DiscordSettings, user=Depen
 
 @api_router.post("/organizations")
 async def create_org(data: OrgCreate, user=Depends(get_current_user)):
+    # Enforce org limit based on premium status
+    owned_count = await db.organizations.count_documents({"owner_id": user['id']})
+    is_premium = await check_premium(user['id'])
+    limit = PREMIUM_ORG_LIMIT if is_premium else FREE_ORG_LIMIT
+    if owned_count >= limit:
+        plan = "premium" if is_premium else "free"
+        raise HTTPException(status_code=403, detail=f"Organization limit reached ({limit} for {plan} plan). Upgrade to create more.")
     org = {
         "id": str(uuid.uuid4()),
         "name": data.name,
@@ -761,6 +778,197 @@ async def test_discord_webhook(org_id: str, user=Depends(get_current_user)):
 @api_router.get("/health")
 async def health():
     return {"status": "ok", "service": "Frontier Ledger API"}
+
+# ============ PREMIUM HELPERS ============
+
+async def check_premium(user_id: str) -> bool:
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return False
+    premium_until = user.get('premium_until', '')
+    if not premium_until:
+        return False
+    try:
+        return datetime.fromisoformat(premium_until) > datetime.now(timezone.utc)
+    except:
+        return False
+
+async def require_premium(user=Depends(get_current_user)):
+    is_premium = await check_premium(user['id'])
+    if not is_premium:
+        raise HTTPException(status_code=403, detail="Premium subscription required")
+    return user
+
+# ============ PREMIUM/STRIPE ENDPOINTS ============
+
+class CheckoutRequest(BaseModel):
+    origin_url: str
+
+@api_router.get("/premium/subscription")
+async def get_subscription(user=Depends(get_current_user)):
+    is_premium = await check_premium(user['id'])
+    premium_until = user.get('premium_until', '')
+    owned_orgs = await db.organizations.count_documents({"owner_id": user['id']})
+    org_limit = PREMIUM_ORG_LIMIT if is_premium else FREE_ORG_LIMIT
+    return {
+        "is_premium": is_premium,
+        "premium_until": premium_until,
+        "plan": "premium" if is_premium else "free",
+        "price": PREMIUM_PRICE,
+        "owned_orgs": owned_orgs,
+        "org_limit": org_limit,
+    }
+
+@api_router.post("/premium/checkout")
+async def create_premium_checkout(data: CheckoutRequest, request: Request, user=Depends(get_current_user)):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionRequest
+    host_url = str(request.base_url).rstrip('/')
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    origin = data.origin_url.rstrip('/')
+    success_url = f"{origin}/premium?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/premium"
+    checkout_req = CheckoutSessionRequest(
+        amount=PREMIUM_PRICE,
+        currency="usd",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"user_id": user['id'], "username": user['username'], "plan": "premium_monthly"}
+    )
+    session = await stripe_checkout.create_checkout_session(checkout_req)
+    await db.payment_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session.session_id,
+        "user_id": user['id'],
+        "username": user['username'],
+        "amount": PREMIUM_PRICE,
+        "currency": "usd",
+        "payment_status": "pending",
+        "plan": "premium_monthly",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    return {"url": session.url, "session_id": session.session_id}
+
+@api_router.get("/premium/status/{session_id}")
+async def check_payment_status(session_id: str, user=Depends(get_current_user)):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    host_url = "http://localhost:8001/"
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    status = await stripe_checkout.get_checkout_status(session_id)
+    txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if status.payment_status == "paid" and txn and txn.get("payment_status") != "paid":
+        premium_until = (datetime.now(timezone.utc) + timedelta(days=PREMIUM_DAYS)).isoformat()
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "paid", "status": status.status}})
+        await db.users.update_one({"id": user['id']}, {"$set": {"premium_until": premium_until, "plan": "premium"}})
+        logger.info(f"Premium activated for {user['username']} until {premium_until}")
+    elif status.status == "expired":
+        await db.payment_transactions.update_one({"session_id": session_id}, {"$set": {"payment_status": "expired", "status": "expired"}})
+    return {"status": status.status, "payment_status": status.payment_status, "amount_total": status.amount_total}
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    host_url = str(request.base_url).rstrip('/')
+    webhook_url = f"{host_url}api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    body = await request.body()
+    sig = request.headers.get("Stripe-Signature", "")
+    try:
+        event = await stripe_checkout.handle_webhook(body, sig)
+        if event.payment_status == "paid" and event.metadata.get("plan") == "premium_monthly":
+            user_id = event.metadata.get("user_id")
+            if user_id:
+                txn = await db.payment_transactions.find_one({"session_id": event.session_id}, {"_id": 0})
+                if txn and txn.get("payment_status") != "paid":
+                    premium_until = (datetime.now(timezone.utc) + timedelta(days=PREMIUM_DAYS)).isoformat()
+                    await db.payment_transactions.update_one({"session_id": event.session_id}, {"$set": {"payment_status": "paid"}})
+                    await db.users.update_one({"id": user_id}, {"$set": {"premium_until": premium_until, "plan": "premium"}})
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return {"status": "error"}
+
+# ============ ANALYTICS ENDPOINTS (PREMIUM) ============
+
+@api_router.get("/organizations/{org_id}/analytics/inventory")
+async def analytics_inventory(org_id: str, user=Depends(require_premium)):
+    items = await db.inventory.find({"org_id": org_id}, {"_id": 0}).to_list(1000)
+    by_category = {}
+    total_items = 0
+    total_qty = 0
+    for item in items:
+        cat = item.get('category', 'other')
+        by_category[cat] = by_category.get(cat, 0) + item.get('quantity', 0)
+        total_items += 1
+        total_qty += item.get('quantity', 0)
+    top_items = sorted(items, key=lambda x: x.get('quantity', 0), reverse=True)[:10]
+    low_stock = [i for i in items if i.get('quantity', 0) <= 5]
+    recent_logs = await db.audit_logs.find({"org_id": org_id, "entity_type": "inventory"}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"total_items": total_items, "total_quantity": total_qty, "by_category": by_category, "top_items": [{"name": i["name"], "quantity": i["quantity"], "category": i.get("category", "")} for i in top_items], "low_stock": [{"name": i["name"], "quantity": i["quantity"]} for i in low_stock], "recent_changes": recent_logs[:20]}
+
+@api_router.get("/organizations/{org_id}/analytics/treasury")
+async def analytics_treasury(org_id: str, user=Depends(require_premium)):
+    txns = await db.treasury.find({"org_id": org_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    by_category = {}
+    daily = {}
+    total_in = 0
+    total_out = 0
+    for t in txns:
+        cat = t.get('category', 'other')
+        amt = t.get('amount', 0)
+        if t['type'] == 'deposit':
+            total_in += amt
+            by_category[cat] = by_category.get(cat, 0) + amt
+        else:
+            total_out += amt
+            by_category[cat] = by_category.get(cat, 0) - amt
+        day = t.get('created_at', '')[:10]
+        if day not in daily:
+            daily[day] = {"deposits": 0, "withdrawals": 0}
+        if t['type'] == 'deposit':
+            daily[day]["deposits"] += amt
+        else:
+            daily[day]["withdrawals"] += amt
+    return {"total_income": total_in, "total_expenses": total_out, "balance": total_in - total_out, "by_category": by_category, "daily_breakdown": daily, "transaction_count": len(txns)}
+
+@api_router.get("/organizations/{org_id}/analytics/crops")
+async def analytics_crops(org_id: str, user=Depends(require_premium)):
+    crops = await db.crops.find({"org_id": org_id}, {"_id": 0}).to_list(500)
+    by_status = {}
+    by_name = {}
+    for c in crops:
+        s = c.get('status', 'unknown')
+        by_status[s] = by_status.get(s, 0) + 1
+        n = c.get('name', 'unknown')
+        if n not in by_name:
+            by_name[n] = {"planted": 0, "harvested": 0}
+        by_name[n]["planted"] += 1
+        if s == "harvested":
+            by_name[n]["harvested"] += 1
+    return {"total_crops": len(crops), "by_status": by_status, "by_crop_type": by_name, "active_count": by_status.get("planted", 0) + by_status.get("growing", 0), "harvested_count": by_status.get("harvested", 0)}
+
+# ============ EXPORT ENDPOINTS (PREMIUM) ============
+
+@api_router.get("/organizations/{org_id}/export/inventory")
+async def export_inventory(org_id: str, user=Depends(require_premium)):
+    items = await db.inventory.find({"org_id": org_id}, {"_id": 0}).to_list(1000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Name", "Category", "Quantity", "Storage Location", "Notes", "Last Updated By", "Updated At"])
+    for item in items:
+        writer.writerow([item.get("name", ""), item.get("category", ""), item.get("quantity", 0), item.get("storage_location", ""), item.get("notes", ""), item.get("last_updated_by", ""), item.get("updated_at", "")])
+    return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=inventory_{org_id[:8]}.csv"})
+
+@api_router.get("/organizations/{org_id}/export/treasury")
+async def export_treasury(org_id: str, user=Depends(require_premium)):
+    txns = await db.treasury.find({"org_id": org_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Date", "Type", "Amount", "Category", "Description", "Created By"])
+    for t in txns:
+        writer.writerow([t.get("created_at", ""), t.get("type", ""), t.get("amount", 0), t.get("category", ""), t.get("description", ""), t.get("created_by", "")])
+    return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=treasury_{org_id[:8]}.csv"})
 
 # Include router and middleware
 app.include_router(api_router)
