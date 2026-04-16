@@ -57,7 +57,7 @@ export default function PremiumScreen() {
   const handleUpgrade = async () => {
     setCheckoutLoading(true);
     try {
-      const origin = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : process.env.EXPO_PUBLIC_BACKEND_URL;
+      const origin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : process.env.EXPO_PUBLIC_BACKEND_URL || '';
       const res = await api.post('/premium/checkout', { origin_url: origin });
       if (res.url) {
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
