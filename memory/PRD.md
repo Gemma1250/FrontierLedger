@@ -103,6 +103,15 @@ Frontier Ledger is a shared management app designed for RP (roleplay) groups to 
 - **Discord Webhooks**: Returns mock success response
 - Real Discord integration ready when credentials are provided
 
+## Premium Tier ($5/month)
+- **Stripe Payment**: Integrated via emergentintegrations library with Stripe Checkout
+- **Free Plan**: 2 organization limit, core features (inventory, treasury, crops, tasks, assets)
+- **Premium Plan**: 20 organization limit + advanced analytics + CSV exports + Discord bot commands
+- **Analytics Dashboard**: Inventory trends by category, top items, low stock alerts; Treasury income vs expenses, daily breakdown; Crop status distribution, yield tracking
+- **CSV Export**: Downloadable CSV reports for inventory and treasury data
+- **Org Limits**: Free users can own max 2 orgs, premium users can own 20
+- **Payment Flow**: Stripe Checkout → payment_transactions collection → premium_until set on user
+
 ## Future Enhancements
 - Real Discord OAuth2, bot commands, and webhook integration
 - Offline/low-signal draft updates with sync
