@@ -1,6 +1,7 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -11,6 +12,8 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
+import httpx
+from urllib.parse import urlencode
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -22,6 +25,14 @@ db = client[os.environ.get('DB_NAME', 'frontier_ledger')]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'frontier-ledger-secret-key-change-in-production')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRY_HOURS = 72
+
+# Discord Config
+DISCORD_CLIENT_ID = os.environ.get('DISCORD_CLIENT_ID', '')
+DISCORD_CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
+DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN', '')
+DISCORD_GUILD_ID = os.environ.get('DISCORD_GUILD_ID', '')
+DISCORD_REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', '')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
 
 app = FastAPI(title="Frontier Ledger API")
 api_router = APIRouter(prefix="/api")
@@ -222,6 +233,144 @@ async def login(data: UserLogin):
 async def get_me(user=Depends(get_current_user)):
     return {k: v for k, v in user.items() if k != 'password_hash'}
 
+# ============ REAL DISCORD OAUTH2 ============
+
+@api_router.get("/auth/discord/url")
+async def get_discord_auth_url():
+    """Returns the Discord OAuth2 authorization URL"""
+    if not DISCORD_CLIENT_ID or not DISCORD_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="Discord not configured")
+    params = urlencode({
+        "client_id": DISCORD_CLIENT_ID,
+        "redirect_uri": DISCORD_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "identify guilds",
+    })
+    return {"url": f"https://discord.com/api/oauth2/authorize?{params}"}
+
+@api_router.get("/auth/discord/callback")
+async def discord_callback(code: str = Query(...)):
+    """Handle Discord OAuth2 callback - exchanges code for token, creates user, redirects to frontend"""
+    try:
+        # Exchange code for access token
+        async with httpx.AsyncClient() as http:
+            token_resp = await http.post("https://discord.com/api/oauth2/token", data={
+                "client_id": DISCORD_CLIENT_ID,
+                "client_secret": DISCORD_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": DISCORD_REDIRECT_URI,
+            }, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
+
+            if token_resp.status_code != 200:
+                logger.error(f"Discord token exchange failed: {token_resp.text}")
+                return RedirectResponse(f"{FRONTEND_URL}/?discord_error=token_exchange_failed")
+
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+
+            # Get user info from Discord
+            user_resp = await http.get("https://discord.com/api/users/@me", headers={
+                "Authorization": f"Bearer {access_token}"
+            }, timeout=10)
+
+            if user_resp.status_code != 200:
+                logger.error(f"Discord user info failed: {user_resp.text}")
+                return RedirectResponse(f"{FRONTEND_URL}/?discord_error=user_info_failed")
+
+            discord_user = user_resp.json()
+
+        # Create or find user in our DB
+        discord_id = discord_user["id"]
+        discord_username = discord_user.get("global_name") or discord_user.get("username", "Unknown")
+        discord_avatar = discord_user.get("avatar", "")
+        avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{discord_avatar}.png" if discord_avatar else ""
+
+        user = await db.users.find_one({"discord_id": discord_id}, {"_id": 0})
+        if not user:
+            user = {
+                "id": str(uuid.uuid4()),
+                "username": discord_username,
+                "email": f"{discord_id}@discord.user",
+                "discord_id": discord_id,
+                "discord_username": discord_username,
+                "discord_avatar": avatar_url,
+                "discord_access_token": access_token,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.users.insert_one(user)
+            user.pop('_id', None)
+        else:
+            # Update existing user's Discord info
+            await db.users.update_one({"discord_id": discord_id}, {"$set": {
+                "discord_username": discord_username,
+                "discord_avatar": avatar_url,
+                "discord_access_token": access_token,
+            }})
+            user["discord_username"] = discord_username
+            user["discord_avatar"] = avatar_url
+
+        jwt_token = create_token(user['id'], user['username'])
+        logger.info(f"Discord OAuth success for {discord_username} (ID: {discord_id})")
+
+        # Redirect to frontend with token
+        return RedirectResponse(f"{FRONTEND_URL}/?discord_token={jwt_token}")
+
+    except httpx.TimeoutException:
+        logger.error("Discord API timeout")
+        return RedirectResponse(f"{FRONTEND_URL}/?discord_error=timeout")
+    except Exception as e:
+        logger.error(f"Discord OAuth error: {e}")
+        return RedirectResponse(f"{FRONTEND_URL}/?discord_error=unknown")
+
+# ============ DISCORD WEBHOOK HELPER ============
+
+async def send_discord_webhook(org_id: str, content: str = None, embed: dict = None):
+    """Send a message to the organization's Discord webhook"""
+    org = await db.organizations.find_one({"id": org_id})
+    if not org:
+        return
+    webhook_url = org.get('discord_webhook_url', '')
+    if not webhook_url:
+        return
+    try:
+        payload = {}
+        if content:
+            payload["content"] = content
+        if embed:
+            payload["embeds"] = [embed]
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(webhook_url, json=payload, timeout=5)
+            if resp.status_code not in (200, 204):
+                logger.warning(f"Webhook response {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logger.error(f"Discord webhook error for org {org_id}: {e}")
+
+def make_embed(title: str, description: str, color: int = 0xC5A059, fields: list = None):
+    """Create a Discord embed object"""
+    embed = {"title": title, "description": description, "color": color, "timestamp": datetime.now(timezone.utc).isoformat(), "footer": {"text": "Frontier Ledger"}}
+    if fields:
+        embed["fields"] = fields
+    return embed
+
+# ============ DISCORD SETTINGS ============
+
+class DiscordSettings(BaseModel):
+    discord_webhook_url: str = ""
+    discord_guild_id: str = ""
+
+@api_router.put("/organizations/{org_id}/discord-settings")
+async def update_discord_settings(org_id: str, data: DiscordSettings, user=Depends(get_current_user)):
+    org = await db.organizations.find_one({"id": org_id})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    is_leader = any(m['user_id'] == user['id'] and m['role'] in ('leader', 'treasurer') for m in org.get('members', []))
+    if not is_leader:
+        raise HTTPException(status_code=403, detail="Only leaders can update Discord settings")
+    await db.organizations.update_one({"id": org_id}, {"$set": {"discord_webhook_url": data.discord_webhook_url, "discord_guild_id": data.discord_guild_id}})
+    await log_audit(org_id, user['id'], user['username'], 'updated', 'discord_settings', org_id, "Updated Discord webhook settings")
+    return {"status": "updated"}
+
 # ============ ORGANIZATION ENDPOINTS ============
 
 @api_router.post("/organizations")
@@ -304,6 +453,7 @@ async def create_inventory_item(org_id: str, data: InventoryItemCreate, user=Dep
     await db.inventory.insert_one(item)
     item.pop('_id', None)
     await log_audit(org_id, user['id'], user['username'], 'created', 'inventory', item['id'], f"Added {data.name} x{data.quantity}")
+    await send_discord_webhook(org_id, embed=make_embed("Inventory Updated", f"**{user['username']}** added **{data.name}** x{data.quantity}", 0xC5A059))
     return item
 
 @api_router.put("/organizations/{org_id}/inventory/{item_id}")
@@ -336,6 +486,7 @@ async def quick_update_inventory(org_id: str, item_id: str, data: QuickUpdate, u
     result.pop('_id', None)
     sign = f"+{data.amount}" if data.amount > 0 else str(data.amount)
     await log_audit(org_id, user['id'], user['username'], 'quick_update', 'inventory', item_id, f"{item['name']} {sign} (now {new_qty})")
+    await send_discord_webhook(org_id, embed=make_embed("Inventory Updated", f"**{user['username']}** updated **{item['name']}** {sign} (now {new_qty})", 0xC5A059))
     return result
 
 @api_router.delete("/organizations/{org_id}/inventory/{item_id}")
@@ -385,6 +536,8 @@ async def create_transaction(org_id: str, data: TransactionCreate, user=Depends(
     txn.pop('_id', None)
     sign = "+" if data.type == "deposit" else "-"
     await log_audit(org_id, user['id'], user['username'], data.type, 'treasury', txn['id'], f"{sign}${data.amount} - {data.description}")
+    color = 0x4A5D23 if data.type == "deposit" else 0xA23B2A
+    await send_discord_webhook(org_id, embed=make_embed(f"Treasury {'Deposit' if data.type == 'deposit' else 'Withdrawal'}", f"**{user['username']}** {sign}${data.amount}\n{data.description}", color))
     return txn
 
 # ============ CROP ENDPOINTS ============
@@ -439,6 +592,7 @@ async def harvest_crop(org_id: str, crop_id: str, user=Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Crop not found")
     result.pop('_id', None)
     await log_audit(org_id, user['id'], user['username'], 'harvested', 'crop', crop_id, f"Harvested {result['name']}")
+    await send_discord_webhook(org_id, embed=make_embed("Crop Harvested!", f"**{user['username']}** harvested **{result['name']}**", 0x6B8E23))
     return result
 
 @api_router.delete("/organizations/{org_id}/crops/{crop_id}")

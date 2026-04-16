@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Redirect, useRouter } from 'expo-router';
+import { Redirect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 import { COLORS } from '../src/theme';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
@@ -11,6 +12,7 @@ export default function LoginScreen() {
   const { token, currentOrg, loading: authLoading } = useAuth();
   const { login } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ discord_token?: string; discord_error?: string }>();
   const [mode, setMode] = useState<'discord' | 'email'>('discord');
   const [isRegister, setIsRegister] = useState(false);
   const [discordName, setDiscordName] = useState('');
@@ -18,11 +20,55 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
+  const [discordLoading, setDiscordLoading] = useState(false);
 
-  if (authLoading) {
+  // Handle Discord OAuth callback token from URL
+  useEffect(() => {
+    if (params.discord_token) {
+      handleDiscordCallback(params.discord_token);
+    } else if (params.discord_error) {
+      Alert.alert('Discord Login Failed', `Error: ${params.discord_error}. Try again or use email login.`);
+    }
+  }, [params.discord_token, params.discord_error]);
+
+  const handleDiscordCallback = async (callbackToken: string) => {
+    setDiscordLoading(true);
+    try {
+      api.setToken(callbackToken);
+      const user = await api.get('/auth/me');
+      await login(callbackToken, user);
+      // Clean up URL params
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.history.replaceState({}, '', '/');
+      }
+      router.replace('/org-select');
+    } catch (e: any) {
+      Alert.alert('Error', 'Discord authentication failed. Please try again.');
+    } finally {
+      setDiscordLoading(false);
+    }
+  };
+
+  const handleRealDiscordLogin = async () => {
+    setLoading(true);
+    try {
+      const { url } = await api.get('/auth/discord/url');
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.location.href = url;
+      } else {
+        await Linking.openURL(url);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+      setLoading(false);
+    }
+  };
+
+  if (authLoading || discordLoading) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
+        {discordLoading && <Text style={{ color: COLORS.textSecondary, marginTop: 12 }}>Authenticating with Discord...</Text>}
       </View>
     );
   }
@@ -80,12 +126,21 @@ export default function LoginScreen() {
           <View style={styles.formCard}>
             {mode === 'discord' ? (
               <>
-                <Text style={styles.formLabel}>DISCORD DISPLAY NAME</Text>
-                <TextInput testID="discord-name-input" style={styles.input} placeholder="e.g. Sadie Adler" placeholderTextColor={COLORS.mutedForeground} value={discordName} onChangeText={setDiscordName} autoCapitalize="none" />
-                <Text style={styles.hint}>Mock login - enter any name to continue</Text>
-                <TouchableOpacity testID="discord-login-btn" style={styles.primaryBtn} onPress={handleDiscordLogin} disabled={loading}>
-                  {loading ? <ActivityIndicator color={COLORS.primaryForeground} /> : (
-                    <><Ionicons name="logo-discord" size={20} color={COLORS.primaryForeground} /><Text style={styles.primaryBtnText}>Continue with Discord</Text></>
+                <TouchableOpacity testID="real-discord-login-btn" style={[styles.primaryBtn, { backgroundColor: '#5865F2' }]} onPress={handleRealDiscordLogin} disabled={loading}>
+                  {loading ? <ActivityIndicator color="#fff" /> : (
+                    <><Ionicons name="logo-discord" size={20} color="#fff" /><Text style={[styles.primaryBtnText, { color: '#fff' }]}>Login with Discord</Text></>
+                  )}
+                </TouchableOpacity>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or demo mode</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+                <Text style={styles.formLabel}>QUICK DEMO LOGIN</Text>
+                <TextInput testID="discord-name-input" style={styles.input} placeholder="Enter any display name" placeholderTextColor={COLORS.mutedForeground} value={discordName} onChangeText={setDiscordName} autoCapitalize="none" />
+                <TouchableOpacity testID="discord-login-btn" style={[styles.primaryBtn, { backgroundColor: COLORS.surfaceHover }]} onPress={handleDiscordLogin} disabled={loading}>
+                  {loading ? <ActivityIndicator color={COLORS.primary} /> : (
+                    <Text style={[styles.primaryBtnText, { color: COLORS.primary }]}>Continue as Demo User</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -139,5 +194,8 @@ const styles = StyleSheet.create({
   primaryBtnText: { fontSize: 16, fontWeight: '700', color: COLORS.primaryForeground },
   toggleBtn: { marginTop: 16, alignItems: 'center' },
   toggleText: { color: COLORS.primary, fontSize: 14 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+  dividerText: { marginHorizontal: 12, fontSize: 12, color: COLORS.mutedForeground },
   footer: { textAlign: 'center', color: COLORS.mutedForeground, fontSize: 12, marginTop: 32, lineHeight: 18 },
 });
