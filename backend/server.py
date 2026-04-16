@@ -850,9 +850,9 @@ async def create_premium_checkout(data: CheckoutRequest, request: Request, user=
     return {"url": session.url, "session_id": session.session_id}
 
 @api_router.get("/premium/status/{session_id}")
-async def check_payment_status(session_id: str, user=Depends(get_current_user)):
+async def check_payment_status(session_id: str, request: Request, user=Depends(get_current_user)):
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
-    host_url = "http://localhost:8001/"
+    host_url = str(request.base_url).rstrip('/')
     webhook_url = f"{host_url}api/webhook/stripe"
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
     status = await stripe_checkout.get_checkout_status(session_id)
