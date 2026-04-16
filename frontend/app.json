@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.frontierledger.app",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleShortVersionString": "1.0.0"
       }
     },
     "android": {
@@ -22,7 +23,8 @@
         "backgroundColor": "#17110C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.frontierledger.app"
+      "package": "com.frontierledger.app",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",

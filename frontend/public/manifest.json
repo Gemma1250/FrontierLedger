@@ -2,15 +2,28 @@
   "short_name": "Frontier Ledger",
   "name": "Frontier Ledger - RP Group Manager",
   "description": "Manage inventory, crops, finances, and shared assets for your RP group with Discord integration.",
+  "version": "1.0.0",
   "icons": [
     {
-      "src": "/assets/images/icon.png",
-      "sizes": "192x192",
+      "src": "/assets/images/favicon.png",
+      "sizes": "64x64",
       "type": "image/png"
     },
     {
-      "src": "/assets/images/icon.png",
+      "src": "/assets/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/images/icon-512.png",
       "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/images/icon.png",
+      "sizes": "1024x1024",
       "type": "image/png"
     }
   ],
