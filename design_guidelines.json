@@ -1,0 +1,106 @@
+{
+  "theme": "dark",
+  "archetype": "1 (Organic & Earthy)",
+  "design_philosophy": "A rugged, frontier-inspired interface mimicking leather, wood, and parchment. High contrast for readability while maintaining deep, warm, immersive gaming aesthetics tailored for RP groups.",
+  "colors": {
+    "background": "#17110C",
+    "surface": "#261C14",
+    "surface_hover": "#33261C",
+    "border": "#3E2E21",
+    "primary": "#C5A059",
+    "primary_hover": "#D4AF37",
+    "primary_foreground": "#17110C",
+    "secondary": "#4A5D23",
+    "secondary_foreground": "#E5D9C5",
+    "accent": "#A23B2A",
+    "accent_foreground": "#E5D9C5",
+    "text_primary": "#E5D9C5",
+    "text_secondary": "#9D8C7A",
+    "success": "#4A5D23",
+    "warning": "#C5A059",
+    "error": "#A23B2A",
+    "ring": "#C5A059",
+    "muted": "#261C14",
+    "muted_foreground": "#9D8C7A"
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Cormorant Garamond, serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "rules": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tight text-[#C5A059]",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-[#E5D9C5]",
+      "h3": "text-xl sm:text-2xl font-medium text-[#E5D9C5]",
+      "body": "text-base leading-relaxed text-[#9D8C7A]",
+      "labels": "text-xs uppercase tracking-[0.2em] font-semibold text-[#9D8C7A]"
+    }
+  },
+  "spacing_and_layout": {
+    "grid_system": "Mobile-first, 1 column expanding to 3-4 columns (Control Room Grid) for dashboards.",
+    "card_padding": "p-4 md:p-6",
+    "section_spacing": "gap-6 md:gap-8",
+    "surface_strategy": "Flat solid surfaces with sharp 1px borders (border-[#3E2E21]) to simulate wooden panels. Subtle inner glow instead of heavy drop shadows.",
+    "border_radius": "rounded-sm"
+  },
+  "components": {
+    "buttons": "Flat background with 1px border. Primary buttons use #C5A059 background with dark text. Secondary buttons use transparent background with #C5A059 border and text. Hover states must increase brightness.",
+    "cards": "bg-[#261C14] border border-[#3E2E21] rounded-sm. No drop shadows. Use a subtle top inner highlight (border-t border-[#C5A059]/10) for depth.",
+    "navigation": "Fixed bottom tab bar for mobile (z-50) with backdrop-blur-xl bg-[#17110C]/90 border-t border-[#3E2E21]. Active tab gets #C5A059 text/icon, inactive gets #9D8C7A.",
+    "inputs": "bg-[#17110C] border border-[#3E2E21] text-[#E5D9C5] rounded-sm focus:border-[#C5A059] focus:ring-1 focus:ring-[#C5A059] transition-all duration-200.",
+    "tables": "Dense layout, border-collapse. Headers use small uppercase tracking-[0.2em]. Rows separated by border-[#3E2E21]."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Cards lift slightly (-translate-y-[1px]) and border color lightens to #C5A059/50. Buttons transition background and text color.",
+    "transitions": "transition-all duration-200 ease-in-out.",
+    "accessibility": "Focus rings must be visible (#C5A059) on all interactive elements. Respect prefers-reduced-motion."
+  },
+  "visual_enhancers": {
+    "textures": "Use noise or wood textures with mix-blend-overlay on backgrounds to kill digital flatness.",
+    "borders": "Expose the skeleton of grids using border-collapse styles to look technical yet rustic."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Stroke width 1.5, slightly rugged feel. Use earthy colors (#C5A059, #9D8C7A) for icons."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_auth_background",
+        "url": "https://images.unsplash.com/photo-1761926639381-498725d1d059?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2ODh8MHwxfHNlYXJjaHwxfHx3ZXN0ZXJuJTIwZnJvbnRpZXIlMjBsYW5kc2NhcGUlMjBzdW5zZXR8ZW58MHx8fHwxNzc2MzEyOTc0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Cowboy riding horse at sunset.",
+        "usage": "Use for the login/auth screen background with a heavy dark overlay (bg-black/70)."
+      },
+      {
+        "category": "texture_overlay",
+        "url": "https://images.unsplash.com/photo-1626890757788-af964c61b239?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwzfHxkYXJrJTIwd29vZCUyMHRleHR1cmUlMjBiYWNrZ3JvdW5kfGVufDB8fHx8MTc3NjMxMjk4MXww&ixlib=rb-4.1.0&q=85",
+        "description": "Dark wood texture background.",
+        "usage": "Use as a subtle background pattern for empty states or dashboard header area with high transparency (opacity-10 mix-blend-overlay)."
+      },
+      {
+        "category": "treasury_graphic",
+        "url": "https://images.unsplash.com/photo-1745655604897-e5182d810836?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwyfHx0cmVhc3VyZSUyMGdvbGQlMjBjb2luc3xlbnwwfHx8fDE3NzYzMTI5ODF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Pile of old treasure coins.",
+        "usage": "Use as a decorative visual in the Treasury ledger screen or as a card thumbnail."
+      },
+      {
+        "category": "town_landscape",
+        "url": "https://images.unsplash.com/photo-1764352104380-4dc42bb84d4a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2ODh8MHwxfHNlYXJjaHw0fHx3ZXN0ZXJuJTIwZnJvbnRpZXIlMjBsYW5kc2NhcGUlMjBzdW5zZXR8ZW58MHx8fHwxNzc2MzEyOTc0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Old western town street.",
+        "usage": "Use in the Group Assets or Multi-Group Switcher screen header."
+      }
+    ]
+  },
+  "testing_attributes": {
+    "rules": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='inventory-add-button', data-testid='discord-login-btn')."
+  },
+  "instructions_to_main_agent": [
+    "Design mobile-first with a bottom tab navigation for core sections (Dashboard, Inventory, Treasury, Crops). Use a sidebar/header pattern for desktop sizes.",
+    "Implement pure HTML/Tailwind for structural bento grid layouts in the dashboard, avoiding rigid Shadcn cards where overlapping or dense layouts are needed.",
+    "For complex interactive components like tables, form inputs, dialogs, and tabs, use and heavily customize Shadcn UI to fit the western theme (rounded-sm, solid flat dark backgrounds with subtle borders).",
+    "Use pure CSS textures or the provided wood image with mix-blend-overlay to break up the 'digital flatness' of the dark mode.",
+    "Ensure all text over images or dark gradients meets APCA contrast guidelines. Never use transparent headers without a backdrop blur or solid scrim.",
+    "Ensure the application strictly follows the color palette and typography rules specified, avoiding default Tailwind blues or greys."
+  ]
+}
