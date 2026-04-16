@@ -176,7 +176,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { justifyContent: 'center', alignItems: 'center' },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 40 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24, paddingTop: 40, maxWidth: 480, alignSelf: 'center', width: '100%' },
   headerSection: { alignItems: 'center', marginBottom: 32 },
   title: { fontSize: 36, fontWeight: '800', color: COLORS.primary, letterSpacing: 6, marginTop: 16 },
   titleAccent: { fontSize: 28, fontWeight: '300', color: COLORS.textPrimary, letterSpacing: 12, marginTop: -4 },

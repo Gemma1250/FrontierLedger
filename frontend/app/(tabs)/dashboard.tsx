@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../src/theme';
@@ -8,21 +8,20 @@ import { useAuth } from '../../src/context/AuthContext';
 
 export default function DashboardScreen() {
   const { currentOrg, user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchStats = useCallback(async () => {
     if (!currentOrg) return;
-    try {
-      const data = await api.get(`/organizations/${currentOrg.id}/stats`);
-      setStats(data);
-    } catch (e) { console.error(e); }
+    try { setStats(await api.get(`/organizations/${currentOrg.id}/stats`)); }
+    catch (e) { console.error(e); }
     finally { setLoading(false); setRefreshing(false); }
   }, [currentOrg]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
-
   const onRefresh = () => { setRefreshing(true); fetchStats(); };
 
   const statCards = stats ? [
@@ -46,35 +45,36 @@ export default function DashboardScreen() {
 
   if (loading) return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
+  const cardWidth = isDesktop ? `${100 / 6 - 1.5}%` as any : '31%' as any;
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={isDesktop ? [] : ['top']}>
       <FlatList
         data={stats?.recent_activity || []}
         keyExtractor={item => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+        contentContainerStyle={[styles.listContent, isDesktop && { maxWidth: 1100, alignSelf: 'center', width: '100%', paddingHorizontal: 32, paddingTop: 24 }]}
         ListHeaderComponent={
           <View>
             <View style={styles.header}>
               <View>
                 <Text style={styles.greeting}>Welcome back, {user?.username}</Text>
-                <Text style={styles.orgName}>{currentOrg?.name}</Text>
+                <Text style={[styles.orgName, isDesktop && { fontSize: 28 }]}>{currentOrg?.name}</Text>
               </View>
               <View style={styles.memberBadge}>
                 <Ionicons name="people" size={14} color={COLORS.primary} />
                 <Text style={styles.memberCount}>{stats?.member_count || 0}</Text>
               </View>
             </View>
-
-            <View style={styles.statsGrid}>
+            <View style={[styles.statsGrid, isDesktop && { gap: 12 }]}>
               {statCards.map((card, i) => (
-                <View key={i} testID={`stat-card-${i}`} style={styles.statCard}>
-                  <Ionicons name={card.icon as any} size={24} color={card.color} />
-                  <Text style={styles.statValue}>{card.value}</Text>
+                <View key={i} testID={`stat-card-${i}`} style={[styles.statCard, { width: cardWidth }, isDesktop && { padding: 18 }]}>
+                  <Ionicons name={card.icon as any} size={isDesktop ? 28 : 24} color={card.color} />
+                  <Text style={[styles.statValue, isDesktop && { fontSize: 26 }]}>{card.value}</Text>
                   <Text style={styles.statLabel}>{card.label}</Text>
                 </View>
               ))}
             </View>
-
             <Text style={styles.sectionTitle}>Recent Activity</Text>
           </View>
         }
@@ -88,13 +88,14 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { justifyContent: 'center', alignItems: 'center' },
+  listContent: { paddingBottom: 20 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 20, paddingBottom: 12 },
   greeting: { fontSize: 14, color: COLORS.textSecondary },
   orgName: { fontSize: 22, fontWeight: '700', color: COLORS.primary, marginTop: 4 },
   memberBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   memberCount: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, gap: 8 },
-  statCard: { width: '31%', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 4, padding: 14, alignItems: 'center', gap: 6 },
+  statCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 4, padding: 14, alignItems: 'center', gap: 6 },
   statValue: { fontSize: 22, fontWeight: '800', color: COLORS.textPrimary },
   statLabel: { fontSize: 11, color: COLORS.textSecondary, textAlign: 'center', letterSpacing: 0.5 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12, letterSpacing: 1 },

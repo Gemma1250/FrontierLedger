@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, TextInput, Modal, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, RefreshControl, TextInput, Modal, ScrollView, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, CATEGORIES } from '../../src/theme';
@@ -8,6 +8,8 @@ import { useAuth } from '../../src/context/AuthContext';
 
 export default function InventoryScreen() {
   const { currentOrg } = useAuth();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 768;
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,7 +100,8 @@ export default function InventoryScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={isDesktop ? [] : ['top']}>
+      <View style={isDesktop ? { maxWidth: 1100, alignSelf: 'center', width: '100%', paddingHorizontal: 32, flex: 1, paddingTop: 16 } : { flex: 1 }}>
       <View style={styles.header}>
         <Text style={styles.title}>Inventory</Text>
         <TouchableOpacity testID="add-inventory-btn" style={styles.addBtn} onPress={() => setShowAdd(true)}>
@@ -131,6 +134,7 @@ export default function InventoryScreen() {
           ListEmptyComponent={<Text style={styles.emptyText}>No items found. Add your first item!</Text>}
         />
       )}
+      </View>
 
       <Modal visible={showAdd} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -197,8 +201,8 @@ const styles = StyleSheet.create({
   qtyValue: { fontSize: 20, fontWeight: '800', color: COLORS.primaryForeground },
   updatedBy: { fontSize: 11, color: COLORS.mutedForeground, marginTop: 8, textAlign: 'right' },
   emptyText: { color: COLORS.textSecondary, textAlign: 'center', padding: 20, fontSize: 14 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '80%' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end', alignItems: 'center' },
+  modalContent: { backgroundColor: COLORS.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, maxHeight: '80%', width: '100%', maxWidth: 600 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
   formLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textSecondary, letterSpacing: 2, marginBottom: 6, marginTop: 12 },
