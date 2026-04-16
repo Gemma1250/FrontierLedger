@@ -259,8 +259,12 @@ async def get_discord_auth_url():
     return {"url": f"https://discord.com/api/oauth2/authorize?{params}"}
 
 @api_router.get("/auth/discord/callback")
-async def discord_callback(code: str = Query(...)):
+async def discord_callback(code: Optional[str] = None, error: Optional[str] = None, error_description: Optional[str] = None):
     """Handle Discord OAuth2 callback - exchanges code for token, creates user, redirects to frontend"""
+    # Handle user denying access or Discord errors
+    if error or not code:
+        logger.warning(f"Discord OAuth denied: {error} - {error_description}")
+        return RedirectResponse(f"{FRONTEND_URL}/?discord_error={error or 'no_code'}")
     try:
         # Exchange code for access token
         async with httpx.AsyncClient() as http:
